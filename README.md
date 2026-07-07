@@ -46,3 +46,11 @@ Worst-case unconditional cost is protocol ~150 tokens + skill descriptions ~120 
 ## How It Works
 
 Midas stores tiny per-session state in `$TMPDIR`. Hook logic is pure-function based for direct tests. All hook entrypoints silent-fail so a broken hook never breaks a session.
+
+## Development
+
+Run the test suite from the repository root:
+
+```sh
+python -m unittest discover -s tests -v
+```
