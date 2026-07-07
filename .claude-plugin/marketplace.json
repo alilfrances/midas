@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "midas",
+  "description": "Midas — scaffolding plugin that lifts mid-tier model agentic quality a tier at net-zero token overhead.",
+  "owner": {
+    "name": "Alil Kuizon"
+  },
+  "plugins": [
+    {
+      "name": "midas",
+      "description": "Mid-tier model to gold. Failure-pattern gates + on-demand playbooks. Net-zero tokens.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
