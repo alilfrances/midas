@@ -33,6 +33,14 @@ From a local clone:
 /plugin install midas@midas
 ```
 
+In Codex:
+
+```sh
+codex plugin marketplace add /path/to/midas
+```
+
+Then restart Codex and install `midas` from the registered marketplace.
+
 Requires Python 3.10+ on PATH (`python3`). No other dependencies.
 
 ## Token Budget

@@ -1,0 +1,36 @@
+{
+  "name": "midas",
+  "version": "0.1.0",
+  "description": "Deterministic scaffolding that lifts mid-tier model agentic quality with explore-before-edit, verify-before-stop, retry-thrash detection, and on-demand playbooks.",
+  "author": {
+    "name": "Alil Kuizon"
+  },
+  "homepage": "https://github.com/alilfrances/midas",
+  "repository": "https://github.com/alilfrances/midas",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "codex",
+    "hooks",
+    "skills",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Midas",
+    "shortDescription": "Explore, plan, debug, and verify gates for coding agents",
+    "longDescription": "Midas bundles deterministic Codex hooks and compact skills that nudge agents toward exploration before edits, structured planning, systematic debugging, and evidence-backed verification before completion.",
+    "developerName": "Alil Kuizon",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use Midas discipline in this repo",
+      "Show the Midas workflow"
+    ],
+    "brandColor": "#D97706"
+  }
+}

@@ -1,17 +1,11 @@
 {
-  "name": "midas",
-  "version": "0.1.0",
-  "description": "Turns mid-tier models to gold. Deterministic scaffolding — explore-before-edit gate, verify-before-stop gate, thrash detection, on-demand playbooks — lifts Haiku/Sonnet agentic quality a tier at net-zero token overhead.",
-  "author": {
-    "name": "Alil Kuizon"
-  },
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" session_start",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}/hooks/midas_hook.py\" session_start",
             "timeout": 5,
             "statusMessage": "Midas protocol loading..."
           }
@@ -24,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" pre_tool",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}/hooks/midas_hook.py\" pre_tool",
             "timeout": 5
           }
         ]
@@ -36,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" post_tool",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}/hooks/midas_hook.py\" post_tool",
             "timeout": 5
           }
         ]
@@ -47,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" stop",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}/hooks/midas_hook.py\" stop",
             "timeout": 5
           }
         ]
