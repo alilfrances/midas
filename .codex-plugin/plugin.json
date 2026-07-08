@@ -1,6 +1,6 @@
 {
   "name": "midas",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Deterministic scaffolding that lifts mid-tier model agentic quality with explore-before-edit, verify-before-stop, retry-thrash detection, and on-demand playbooks.",
   "author": {
     "name": "Alil Kuizon"

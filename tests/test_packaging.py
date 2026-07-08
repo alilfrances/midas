@@ -16,7 +16,7 @@ class TestPackaging(unittest.TestCase):
         claude = load_json(".claude-plugin", "plugin.json")
         codex = load_json(".codex-plugin", "plugin.json")
         self.assertEqual(claude["version"], codex["version"])
-        self.assertEqual(claude["version"], "0.2.0")
+        self.assertEqual(claude["version"], "0.2.1")
 
     def test_codex_manifest_points_at_skills(self):
         manifest = load_json(".codex-plugin", "plugin.json")
@@ -38,7 +38,7 @@ class TestPackaging(unittest.TestCase):
                 for hook in entry["hooks"]:
                     command = hook["command"]
                     self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}", command)
-                    self.assertIn("hooks/midas_hook.py", command)
+                    self.assertIn("hooks/codex_hook.py", command)
 
     def test_user_prompt_submit_registered(self):
         hooks = load_json("hooks", "hooks.json")["hooks"]
@@ -52,7 +52,15 @@ class TestPackaging(unittest.TestCase):
         claude_command = claude_hooks["UserPromptSubmit"][0]["hooks"][0]["command"]
         self.assertIn("${CLAUDE_PLUGIN_ROOT}", claude_command)
         self.assertNotIn("PLUGIN_ROOT:-", claude_command)
+        self.assertIn("hooks/midas_hook.py", claude_command)
         self.assertIn(" user_prompt", claude_command)
+
+    def test_codex_hook_adapter_exists(self):
+        path = os.path.join(ROOT, "hooks", "codex_hook.py")
+        self.assertTrue(os.path.exists(path))
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('MIDAS_RUNTIME"] = "codex"', content)
 
     def test_midas_lesson_cli_is_executable_with_shebang(self):
         path = os.path.join(ROOT, "bin", "midas-lesson")

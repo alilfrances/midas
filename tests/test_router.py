@@ -11,6 +11,12 @@ def pre_bash(command):
     return {"tool_name": "Bash", "tool_input": {"command": command}}
 
 
+def codex_pre_bash(command):
+    data = pre_bash(command)
+    data["midas_runtime"] = "codex"
+    return data
+
+
 class TestBashRouter(unittest.TestCase):
     def assert_denied_once(self, command, class_name, text):
         st = mh.default_state()
@@ -46,6 +52,31 @@ class TestBashRouter(unittest.TestCase):
         self.assertEqual(st["router_fired"], [])
 
 
+class TestCodexBashRouter(unittest.TestCase):
+    def test_rg_is_allowed_in_codex(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("rg --files -g '*.py'"), mh.default_state())
+        self.assertIsNone(out)
+        self.assertEqual(st["router_fired"], [])
+
+    def test_grep_uses_codex_message(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("grep -n thing foo.py"), mh.default_state())
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("Use rg -n -C 3", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("search", st["router_fired"])
+
+    def test_find_uses_codex_message(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("find . -name '*.py'"), mh.default_state())
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("Use rg --files -g", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("find", st["router_fired"])
+
+    def test_full_file_read_uses_codex_message(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("cat foo.py"), mh.default_state())
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("bounded read", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("read", st["router_fired"])
+
+
 class TestRouterRelatedPostTool(unittest.TestCase):
     def test_widened_mcp_explore_regex(self):
         for tool in ("mcp__plugin_axon_axon__localize",
@@ -67,6 +98,19 @@ class TestRouterRelatedPostTool(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MIDAS_READ_NUDGE_LINES": "abc"}):
             out, st = mh.handle_event("post_tool", data, st)
         self.assertIsNone(out)
+
+    def test_codex_read_nudge_uses_rg_message(self):
+        st = mh.default_state()
+        data = {
+            "midas_runtime": "codex",
+            "tool_name": "Read",
+            "tool_input": {},
+            "tool_response": {"content": "\n".join(["x"] * 20)},
+        }
+        with mock.patch.dict(os.environ, {"MIDAS_READ_NUDGE_LINES": "10"}):
+            out, st = mh.handle_event("post_tool", data, st)
+        self.assertIsNotNone(out)
+        self.assertIn("rg -n", out["hookSpecificOutput"]["additionalContext"])
 
 
 if __name__ == "__main__":

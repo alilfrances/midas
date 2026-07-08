@@ -12,7 +12,7 @@ Scaffolding for mid-tier models. Active pieces:
 - Verify gate: stop after edits with no check blocked once — verify or state why skipped.
 - Thrash nudge: same command failing 2x triggers debug protocol pointer.
 - Large-read nudge: unbounded read >400 lines triggers grep-first pointer.
-- Bash router: bare cat/grep/find denied once per class; use Read/Grep/Glob.
+- Bash router: bare cat/grep/find denied once per class; Claude uses Read/Grep/Glob, Codex uses rg plus bounded reads.
 - Freshness gate: API/version-looking failures or upgrade prompts nudge current-docs check.
 - Lessons: per-project thrash/fix pairs + `midas-lesson` notes inject top pitfalls.
 - Scope: missing tools/access/network? state limit, offer nearest route, decline beats fake.

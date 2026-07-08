@@ -15,7 +15,7 @@ Research shows scaffolding roughly doubles weaker-model success on agentic tasks
 | Verify gate | Stop after edits with no check | Block once |
 | Thrash nudge | Same command fails twice | ~25 tok, once |
 | Large-read nudge | Unbounded read over 400 lines | ~25 tok, once |
-| Bash router | Bare `cat`/`grep`/`find -name` via Bash | Deny once per class |
+| Bash router | Bare `cat`/`grep`/`find -name` via Bash; Codex allows `rg` | Deny once per class |
 | Freshness gate | Stale-looking errors or upgrade/latest prompts | ~25 tok, once |
 | Lessons | Prior repo failures or deliberate notes exist | Top 3, <=240 chars |
 | Scope skill | Capability/access limits | 0 until loaded |
@@ -92,6 +92,8 @@ Subagents share the same session state. Router denies are once per class across 
 ## How It Works
 
 Midas stores tiny per-session state in `$TMPDIR`. Hook logic is pure-function based for direct tests. All hook entrypoints silent-fail so a broken hook never breaks a session.
+
+Claude and Codex use separate hook entrypoints. Claude keeps `hooks/midas_hook.py`; Codex uses `hooks/codex_hook.py`, which enables Codex-native guidance such as `rg --files`, `rg -n -C 3`, and bounded shell reads.
 
 ## Development
 

@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-PROTOCOL = """Midas protocol. Every task:
+CLAUDE_PROTOCOL = """Midas protocol. Every task:
 1. EXPLORE before edit: Glob > Grep -n > Read narrow (offset/limit). Grep can locate — don't full-read big files.
 2. PLAN multi-step work: goal, unknowns, ordered steps, verify step each. Template: midas:plan skill.
 3. Batch independent tool calls in one block.
@@ -23,6 +23,19 @@ PROTOCOL = """Midas protocol. Every task:
 7. Capability limits: missing tool/creds/device/network, or task outside scope — state upfront, offer nearest alternative, decline beats fake (midas:scope).
 8. Evidence contradicts user instruction: say so once, one line, cite evidence (file:line, test output). Explicit override → comply, note objection in report. Never argue twice, never silently comply against evidence.
 On-demand playbooks: midas:plan midas:explore midas:edit midas:debug midas:verify midas:ask midas:scope."""
+
+CODEX_PROTOCOL = """Midas protocol. Every task:
+1. EXPLORE before edit: rg --files for candidates, rg -n -C 3 for symbols, then narrow reads (sed -n or equivalent). Don't full-read big files.
+2. PLAN multi-step work: goal, unknowns, ordered steps, verify step each. Template: midas:plan skill.
+3. Batch independent tool calls in one block.
+4. VERIFY before claiming done: run narrowest check, state evidence. No check possible — say so explicitly.
+5. Same error twice: stop retrying, load midas:debug.
+6. Ask user only when answer changes action. Batch questions, give recommended default (midas:ask).
+7. Capability limits: missing tool/creds/device/network, or task outside scope — state upfront, offer nearest alternative, decline beats fake (midas:scope).
+8. Evidence contradicts user instruction: say so once, one line, cite evidence (file:line, test output). Explicit override → comply, note objection in report. Never argue twice, never silently comply against evidence.
+On-demand playbooks: midas:plan midas:explore midas:edit midas:debug midas:verify midas:ask midas:scope."""
+
+PROTOCOL = CLAUDE_PROTOCOL
 
 # --- state -----------------------------------------------------------------
 
@@ -290,6 +303,15 @@ ROUTER_PATTERNS = (
      "Use Glob tool not find. Retry with Glob. Gate fires once per class."),
 )
 
+CODEX_ROUTER_PATTERNS = (
+    ("read", re.compile(r"^(cat|head|tail|less|more)\s+[^-]"),
+     "Avoid full-file {cmd0}. Use rg -n first, then a bounded read like sed -n 'START,ENDp'. Gate fires once per class."),
+    ("search", re.compile(r"^(grep|egrep|fgrep)\s"),
+     "Use rg -n -C 3 instead of {cmd0}. Gate fires once per class."),
+    ("find", re.compile(r"^find\s+\S+.*-name"),
+     "Use rg --files -g 'PATTERN' instead of find -name. Gate fires once per class."),
+)
+
 COMPOUND_TOKENS = ("|", ">", "<", "&&", ";", "$(")
 
 
@@ -308,14 +330,40 @@ def _read_nudge_limit():
         return 400
 
 
-def _router_deny(command, state):
+def _runtime(data=None):
+    try:
+        if isinstance(data, dict) and data.get("midas_runtime"):
+            return str(data.get("midas_runtime"))
+        env_runtime = os.environ.get("MIDAS_RUNTIME")
+        if env_runtime:
+            return env_runtime
+        if os.environ.get("PLUGIN_ROOT") and not os.environ.get("CLAUDE_PLUGIN_ROOT"):
+            return "codex"
+    except Exception:
+        pass
+    return "claude"
+
+
+def _protocol_for_runtime(runtime):
+    if runtime == "codex":
+        return CODEX_PROTOCOL
+    return CLAUDE_PROTOCOL
+
+
+def _router_patterns_for_runtime(runtime):
+    if runtime == "codex":
+        return CODEX_ROUTER_PATTERNS
+    return ROUTER_PATTERNS
+
+
+def _router_deny(command, state, runtime="claude"):
     try:
         cmd = command.strip()
         if not cmd or any(token in cmd for token in COMPOUND_TOKENS):
             return None
         fired = state.setdefault("router_fired", [])
         cmd0 = cmd.split()[0]
-        for name, pattern, reason in ROUTER_PATTERNS:
+        for name, pattern, reason in _router_patterns_for_runtime(runtime):
             if name in fired:
                 continue
             if pattern.search(cmd):
@@ -359,8 +407,9 @@ def _lessons_block(lessons):
 
 def handle_event(event, data, state, lessons=None):
     """Returns (stdout_json_dict_or_None, new_state)."""
+    runtime = _runtime(data)
     if event == "session_start":
-        context = PROTOCOL
+        context = _protocol_for_runtime(runtime)
         if lessons:
             context += _lessons_block(lessons)
         out = {"hookSpecificOutput": {
@@ -392,7 +441,7 @@ def handle_event(event, data, state, lessons=None):
                     msg += " Check midas:debug before retrying."
                     return _pre_tool_context(msg), state
         if tool == "Bash":
-            out = _router_deny(tool_input.get("command", ""), state)
+            out = _router_deny(tool_input.get("command", ""), state, runtime)
             if out is not None:
                 return out, state
         path = tool_input.get("file_path", "")
@@ -400,7 +449,11 @@ def handle_event(event, data, state, lessons=None):
         unexplored = not state.get("explored") and state.get("reads", 0) < 2
         if editing_existing and unexplored and not state["edit_gate_fired"]:
             state["edit_gate_fired"] = True
-            return _deny("Explore first: Glob/Grep then narrow Read (midas:explore). Then retry this edit. Gate fires once per session."), state
+            if runtime == "codex":
+                msg = "Explore first: rg --files/rg -n, then a narrow read (midas:explore). Then retry this edit. Gate fires once per session."
+            else:
+                msg = "Explore first: Glob/Grep then narrow Read (midas:explore). Then retry this edit. Gate fires once per session."
+            return _deny(msg), state
         return None, state
     if event == "post_tool":
         tool = data.get("tool_name", "")
@@ -422,7 +475,11 @@ def handle_event(event, data, state, lessons=None):
             if (unbounded and not state["read_nudge_fired"] and
                     content.count("\n") + bool(content) > _read_nudge_limit()):
                 state["read_nudge_fired"] = True
-                return _nudge("Huge Read. Use Grep -n then narrow Read. Load midas:explore."), state
+                if runtime == "codex":
+                    msg = "Huge Read. Use rg -n, then a bounded read. Load midas:explore."
+                else:
+                    msg = "Huge Read. Use Grep -n then narrow Read. Load midas:explore."
+                return _nudge(msg), state
 
         if tool in ("Edit", "Write"):
             state["edits_since_verify"] += 1
