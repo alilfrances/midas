@@ -19,3 +19,4 @@ Bans:
 - No retrying identical command hoping different result.
 - No "fix" that silences error without explaining original cause.
 - 4 failed loops: report exact command, error, hypotheses tried, current state. Honest stuck beats fake progress.
+- Stuck report done? Record: midas-lesson "X fails: <cause>" — persists across sessions.

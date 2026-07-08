@@ -14,10 +14,11 @@ class TestSessionStart(unittest.TestCase):
         self.assertIn("EXPLORE", ctx)
         self.assertIn("VERIFY", ctx)
         self.assertIn("midas:debug", ctx)
+        self.assertIn("override", ctx)
 
     def test_protocol_under_budget(self):
-        # ~4 chars/token heuristic; budget 200 tokens => 800 chars
-        self.assertLess(len(mh.PROTOCOL), 800)
+        # PLAN_V2 Task 7 allows calibrated pushback line; keep protocol <1100 chars.
+        self.assertLess(len(mh.PROTOCOL), 1100)
 
 
 if __name__ == "__main__":

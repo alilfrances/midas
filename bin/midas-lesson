@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+import importlib.util
+import os
+import sys
+
+
+def _load_hook():
+    here = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(os.path.dirname(here), "hooks", "midas_hook.py")
+    spec = importlib.util.spec_from_file_location("midas_hook", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def main():
+    if os.environ.get("MIDAS_DISABLE") == "1":
+        return
+    mh = _load_hook()
+    text = mh.normalize_cmd(" ".join(sys.argv[1:]))[:160]
+    if not text:
+        return
+    cwd = os.getcwd()
+    lessons = mh.load_lessons(cwd)
+    mh.record_lesson(lessons, "note", text)
+    mh.save_lessons(cwd, lessons)
+    print("lesson saved")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        pass
+    sys.exit(0)

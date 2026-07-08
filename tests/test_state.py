@@ -12,7 +12,9 @@ class TestState(unittest.TestCase):
         st = mh.default_state()
         for key in ("explored", "reads", "edit_gate_fired", "read_nudge_fired",
                     "thrash_nudge_fired", "stop_gate_fired", "edits_since_verify",
-                    "last_bash", "bash_fail_streak"):
+                    "last_bash", "bash_fail_streak", "lesson_warn_fired",
+                    "pending_fail_cmd", "router_fired", "freshness_fired",
+                    "prompt_freshness_fired"):
             self.assertIn(key, st)
 
     def test_state_path_sanitizes_session_id(self):

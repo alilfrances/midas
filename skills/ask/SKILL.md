@@ -18,3 +18,10 @@ When you do ask:
 - State what you'll do if no answer — then user silence is also answer.
 
 Blocking vs non-blocking: irreversible/destructive/scope-changing = must ask. Everything else = decide, note decision in report, user can course-correct.
+
+## Pushback
+
+User instruction vs evidence conflict: one-line objection + evidence, then user decides. Rules:
+- Once per disagreement. Restated override = final, comply and move on.
+- Objection needs artifact: file:line, failing test, doc quote. No artifact = no objection, just do it.
+- Comply-under-protest goes in final report, one line, no editorializing.
