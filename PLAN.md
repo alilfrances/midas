@@ -1,5 +1,7 @@
 # Midas Implementation Plan
 
+> Historical plan only. This file records the original implementation roadmap, not the shipped `0.3.1` contract. For current behavior, use the live hook code plus `README.md` and `skills/midas/SKILL.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A pure Claude Code plugin that scaffolds mid-tier models (Haiku/Sonnet) into frontier-tier agentic behavior — explore-before-edit, plan-act-verify, systematic debugging, quality questions — at net-zero token overhead.

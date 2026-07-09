@@ -1,5 +1,7 @@
 # Midas v3 Hardening Plan — Fix Live Failure Detection + Gate Precision
 
+> Historical roadmap only. This file documents the v3 correction plan and can intentionally describe stale or pre-fix behavior. It is not the shipped `0.3.1` contract; use the live hook code plus `README.md` and `skills/midas/SKILL.md`.
+
 > **For agentic workers (Codex):** Implement task-by-task in order. Steps use checkbox (`- [ ]`) syntax. Do NOT commit — coordinating agent reviews and commits. Run `python3 -m unittest discover -s tests -v` after every task.
 
 **Goal:** Fix the P1 live-detection break (failing Bash commands are invisible to midas in real Claude Code sessions) and tighten four gate-precision gaps found in a live code review. No new features — this is a correctness release.

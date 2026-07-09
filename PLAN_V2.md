@@ -1,5 +1,7 @@
 # Midas v2 Upgrade Plan — Self-Aware Agentic Scaffolding
 
+> Historical roadmap only. This file captures the v2 planning record and may describe intermediate assumptions that are not the shipped `0.3.1` contract. Use the live hook code plus `README.md` and `skills/midas/SKILL.md` for current behavior.
+
 > **For agentic workers (Codex):** Implement task-by-task in order. Steps use checkbox (`- [ ]`) syntax. Do NOT commit — coordinating agent reviews and commits. Run `python3 -m unittest discover -s tests -v` after every task.
 
 **Goal:** Upgrade Midas from failure-pattern gates to a self-aware scaffold: deterministic tool routing (right tool every action), knowledge-freshness detection (never act on stale API memory), capability calibration (accept/decline honestly), and cross-session learning from past mistakes — all at net-negative token cost.

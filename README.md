@@ -22,33 +22,63 @@ Research shows scaffolding roughly doubles weaker-model success on agentic tasks
 | Scope skill | Capability/access limits | 0 until loaded |
 | Seven on-demand skills | User/model loads playbook | 0 until loaded |
 
-### Claude Code version requirement
+### Runtime coverage
 
-Live failure detection (thrash nudge, freshness-on-error, and automatic lesson capture) rides on the `PostToolUseFailure` hook event: it needs Claude Code >= 2.1.x with the PostToolUseFailure hook event. On older versions that entry simply never fires — those three features are inert, everything else works.
+Shipped plugin version: `0.3.1`.
+
+Midas handles six live hook events in Claude Code and Codex: `session_start`, `user_prompt`, `pre_tool`, `post_tool`, `post_tool_failure`, and `stop`.
+
+Claude uses `hooks/midas_hook.py`. Codex uses `hooks/codex_hook.py`, which applies Codex-native guidance such as `rg --files`, `rg -n -C 3`, and narrow `sed -n` reads.
+
+In Claude Code, live failure detection (thrash nudge, freshness-on-error, and automatic lesson capture) depends on the `PostToolUseFailure` hook event. Versions without that event simply skip those behaviors; the other five events still run.
 
 ## Install
 
-In Claude Code:
+In Claude Code, run these slash commands inside an interactive Claude session:
 
 ```
-/plugin marketplace add alilkuizon/midas
+/plugin marketplace add alilfrances/midas
 /plugin install midas@midas
 ```
 
 From a local clone:
 
 ```
-/plugin marketplace add "/path/to/midas"
+/plugin marketplace add "/absolute/path/to/midas"
 /plugin install midas@midas
 ```
 
-In Codex:
+In the Claude Code CLI, run these shell commands:
 
 ```sh
-codex plugin marketplace add /path/to/midas
+claude plugin marketplace add alilfrances/midas
+claude plugin install midas@midas
 ```
 
-Then restart Codex and install `midas` from the registered marketplace.
+From a local clone:
+
+```sh
+claude plugin marketplace add "/absolute/path/to/midas"
+claude plugin install midas@midas
+```
+
+In Codex, run these shell commands:
+
+```sh
+codex plugin marketplace add alilfrances/midas
+codex plugin add midas@midas
+```
+
+From a local clone:
+
+```sh
+codex plugin marketplace add "/absolute/path/to/midas"
+codex plugin add midas@midas
+```
+
+Official docs: [Codex plugins](https://developers.openai.com/codex/plugins/build#add-a-marketplace-from-the-cli), [Codex CLI plugin reference](https://developers.openai.com/codex/cli/reference#codex-plugin), [Claude Code plugins](https://code.claude.com/docs/en/discover-plugins), [Claude Code plugin CLI reference](https://code.claude.com/docs/en/plugins-reference).
+
+After installing, run `/reload-plugins` in Claude Code or start a new Claude Code/Codex session so the hooks and skills are loaded.
 
 Requires Python 3.10+ on PATH (`python3`). No other dependencies.
 
@@ -68,7 +98,15 @@ Worst-case unconditional new cost is ~55 tok/session. Everything else is failure
 
 ## Self-learning
 
-Midas keeps a tiny per-project lesson file outside the repo: `$CLAUDE_CONFIG_DIR/midas-data/lessons-<cwdhash>.json`, else `~/.claude/midas-data/`. Reset by removing that data dir.
+Midas keeps a tiny per-project lesson file outside the repo. Base directory precedence is:
+
+1. `MIDAS_CONFIG_DIR/midas-data`
+2. `CLAUDE_CONFIG_DIR/midas-data`
+3. `~/.claude/midas-data`
+
+Lesson files are named `lessons-<sha1(realpath(cwd))[:12]>.json`.
+
+`CLAUDE_PLUGIN_DATA` is intentionally ignored for lesson storage because it is execution-context dependent and would split the store between hook runs and plain CLI calls like `midas-lesson`. Reset by removing the chosen data dir.
 
 Automatic learning records retry-thrash commands and the later successful fix command when it matches the failed command's first token or a verify command. Deliberate notes use:
 
@@ -98,7 +136,7 @@ Subagents share the same session state. Router denies are once per class across 
 
 Midas stores tiny per-session state in `$TMPDIR`. Hook logic is pure-function based for direct tests. All hook entrypoints silent-fail so a broken hook never breaks a session.
 
-Claude and Codex use separate hook entrypoints. Claude keeps `hooks/midas_hook.py`; Codex uses `hooks/codex_hook.py`, which enables Codex-native guidance such as `rg --files`, `rg -n -C 3`, and bounded shell reads.
+Claude and Codex use separate hook entrypoints. Claude keeps `hooks/midas_hook.py`; Codex uses `hooks/codex_hook.py`. The live runtime surface is `session_start`, `user_prompt`, `pre_tool`, `post_tool`, `post_tool_failure`, and `stop`.
 
 ## Development
 

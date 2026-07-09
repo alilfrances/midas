@@ -6,7 +6,8 @@ description: Midas overview + status. Trigger /midas for what plugin does, which
 # Midas
 
 Scaffolding for mid-tier models. Active pieces:
-
+- Runtime coverage: Claude/Codex both run `session_start`, `user_prompt`, `pre_tool`, `post_tool`, `post_tool_failure`, and `stop`.
+- Hook entrypoints: Claude uses `hooks/midas_hook.py`; Codex uses `hooks/codex_hook.py`.
 - Session protocol injected at start (~150 tokens, once).
 - Edit gate: first edit with zero exploration denied once — grep first, retry.
 - Verify gate: stop after edits with no check blocked once — verify or state why skipped.
@@ -14,7 +15,8 @@ Scaffolding for mid-tier models. Active pieces:
 - Large-read nudge: unbounded read >400 lines triggers grep-first pointer.
 - Bash router: bare cat/grep/find denied once per class; Claude uses Read/Grep/Glob, Codex uses rg plus bounded reads.
 - Freshness gate: API/version-looking failures or upgrade prompts nudge current-docs check.
-- Lessons: per-project thrash/fix pairs + `midas-lesson` notes inject top pitfalls.
+- Lessons: per-project thrash/fix pairs + `midas-lesson` notes inject top pitfalls from `MIDAS_CONFIG_DIR/midas-data`, else `CLAUDE_CONFIG_DIR/midas-data`, else `~/.claude/midas-data`.
+- `CLAUDE_PLUGIN_DATA` is intentionally ignored for lessons because it is context-dependent and would split hook/CLI storage.
 - Scope: missing tools/access/network? state limit, offer nearest route, decline beats fake.
 
 Each gate/nudge fires max once per session. Disable everything: `MIDAS_DISABLE=1`.
@@ -24,7 +26,7 @@ Playbooks (load on demand): midas:plan midas:explore midas:edit midas:debug mida
 ## Self-review (on demand)
 
 User asks how session went or /midas review:
-1. Locate lesson store: $CLAUDE_CONFIG_DIR/midas-data, else ~/.claude/midas-data — file lessons-<sha1(cwd)[:12]>.json. Session state: $TMPDIR/midas-<session_id>.json.
+1. Locate lesson store with this precedence: `MIDAS_CONFIG_DIR/midas-data`, else `CLAUDE_CONFIG_DIR/midas-data`, else `~/.claude/midas-data`. Lesson file: `lessons-<sha1(realpath(cwd))[:12]>.json`. Session state: `$TMPDIR/midas-<session_id>.json`.
 2. Read both. Report: gates/nudges fired this session, top recurring lessons (n desc).
 3. Suggest ONE concrete improvement max: CLAUDE.md rule, repo skill, or prompt habit — tied to highest-n lesson. No lesson n>=2 → say "no recurring failures, nothing to suggest".
 Zero cost until invoked — stats live in files, not context.
