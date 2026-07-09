@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -6,6 +8,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks"))
 import midas_hook as mh
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def ev(tool, path):
@@ -193,6 +197,49 @@ class TestPreReadGuard(unittest.TestCase):
                 out, st = mh.handle_event("pre_tool", read_pre_ev(path), mh.default_state())
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("10+", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_codex_unbounded_big_read_uses_rg_message(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = self._make_file(td, "big.py", 500)
+            data = read_pre_ev(path)
+            data["midas_runtime"] = "codex"
+            out, _ = mh.handle_event("pre_tool", data, mh.default_state())
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("rg -n", reason)
+        self.assertNotIn("Grep -n", reason)
+
+    def test_claude_and_codex_entrypoints_use_runtime_read_guidance(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = self._make_file(td, "big.py", 500)
+            claude_data = read_pre_ev(path)
+            claude_data["session_id"] = "pre-read-claude"
+            codex_data = read_pre_ev(path)
+            codex_data["session_id"] = "pre-read-codex"
+            claude = subprocess.run(
+                [sys.executable, os.path.join(ROOT, "hooks", "midas_hook.py"), "pre_tool"],
+                input=json.dumps(claude_data),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            codex = subprocess.run(
+                [sys.executable, os.path.join(ROOT, "hooks", "codex_hook.py"), "pre_tool"],
+                input=json.dumps(codex_data),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            for sid in ("pre-read-claude", "pre-read-codex"):
+                try:
+                    os.unlink(mh.state_path(sid))
+                except OSError:
+                    pass
+        claude_reason = json.loads(claude.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+        codex_reason = json.loads(codex.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("Grep -n", claude_reason)
+        self.assertIn("rg -n", codex_reason)
 
 
 if __name__ == "__main__":

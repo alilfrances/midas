@@ -23,8 +23,12 @@ def main():
     cwd = os.getcwd()
     lessons = mh.load_lessons(cwd)
     mh.record_lesson(lessons, "note", text)
-    mh.save_lessons(cwd, lessons)
-    print("lesson saved")
+    if not mh.save_lessons(cwd, lessons):
+        return
+    saved = mh.load_lessons(cwd)
+    if any(item.get("kind") == "note" and item.get("cmd") == text
+           for item in saved.get("lessons") or []):
+        print("lesson saved")
 
 
 if __name__ == "__main__":

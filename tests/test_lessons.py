@@ -13,6 +13,17 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class TestLessonsStore(unittest.TestCase):
+    def test_lessons_path_prefers_midas_config_dir(self):
+        with tempfile.TemporaryDirectory() as midas_cfg, tempfile.TemporaryDirectory() as claude_cfg:
+            with mock.patch.dict(
+                os.environ,
+                {"MIDAS_CONFIG_DIR": midas_cfg, "CLAUDE_CONFIG_DIR": claude_cfg},
+                clear=True,
+            ):
+                path = mh.lessons_path("/repo")
+        self.assertTrue(path.startswith(os.path.join(midas_cfg, "midas-data")))
+        self.assertFalse(path.startswith(claude_cfg))
+
     def test_lessons_path_uses_config_dir_ignores_plugin_data(self):
         # $CLAUDE_PLUGIN_DATA must be ignored: it is another plugin's dir during
         # a bare Bash `midas-lesson` call, so keying off it would split the store
@@ -37,9 +48,17 @@ class TestLessonsStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             lessons = {"v": 1, "lessons": []}
             mh.record_lesson(lessons, "thrash", "pytest")
-            mh.save_lessons("/repo", lessons, base_dir=td)
+            saved = mh.save_lessons("/repo", lessons, base_dir=td)
             loaded = mh.load_lessons("/repo", base_dir=td)
+        self.assertTrue(saved)
         self.assertEqual(loaded["lessons"][0]["cmd"], "pytest")
+
+    def test_save_lessons_failure_returns_false(self):
+        with tempfile.NamedTemporaryFile() as f:
+            lessons = {"v": 1, "lessons": []}
+            mh.record_lesson(lessons, "note", "cannot save")
+            saved = mh.save_lessons("/repo", lessons, base_dir=f.name)
+        self.assertFalse(saved)
 
     def test_corrupt_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as td:
@@ -136,6 +155,12 @@ class TestMidasLessonCli(unittest.TestCase):
         self.assertEqual(empty.stdout, "")
         self.assertEqual(disabled.stdout, "")
         self.assertEqual(lessons["lessons"], [])
+
+    def test_cli_does_not_confirm_when_save_fails(self):
+        with tempfile.NamedTemporaryFile() as bad_cfg, tempfile.TemporaryDirectory() as cwd:
+            result = self.run_cli(cwd, "note", env={"MIDAS_CONFIG_DIR": bad_cfg.name})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
 
     def test_cli_works_from_unrelated_cwd_and_session_start_shows_note(self):
         with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as cwd:

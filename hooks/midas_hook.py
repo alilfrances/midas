@@ -107,9 +107,12 @@ def _lessons_base_dir(base_dir=None):
     # set to midas's dir inside midas's hook, but ambient (or another plugin's
     # dir) during a plain Bash call like bin/midas-lesson. Keying off it would
     # split the store between the hook and CLI and pollute sibling plugins.
-    # $CLAUDE_CONFIG_DIR is stable across both contexts.
+    # $MIDAS_CONFIG_DIR gives Codex/other runtimes a neutral override;
+    # $CLAUDE_CONFIG_DIR remains the Claude Code-compatible default.
     if base_dir:
         return base_dir
+    if os.environ.get("MIDAS_CONFIG_DIR"):
+        return os.path.join(os.environ.get("MIDAS_CONFIG_DIR"), "midas-data")
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR"), "midas-data")
     return os.path.expanduser(os.path.join("~", ".claude", "midas-data"))
@@ -146,7 +149,7 @@ def save_lessons(cwd, lessons, base_dir=None):
     try:
         path = lessons_path(cwd, base_dir=base_dir)
         if not path:
-            return
+            return False
         items = list(lessons.get("lessons") or [])
         items = sorted(items, key=lambda item: item.get("ts", 0))[-40:]
         data = {"v": 1, "lessons": items}
@@ -156,13 +159,16 @@ def save_lessons(cwd, lessons, base_dir=None):
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             os.replace(tmp, path)
+            with open(path, encoding="utf-8") as f:
+                return json.load(f) == data
         except Exception:
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
+            return False
     except Exception:
-        pass
+        return False
 
 
 def normalize_cmd(cmd):
@@ -567,9 +573,10 @@ def handle_event(event, data, state, lessons=None):
             threshold = _read_nudge_limit()
             if _file_exceeds_lines(tool_input.get("file_path", ""), threshold):
                 state["preread_gate_fired"] = True
+                search_hint = "rg -n" if runtime == "codex" else "Grep -n"
                 return _deny(
-                    "File ~%d+ lines. Read with offset/limit or Grep -n first. "
-                    "Gate fires once per session." % threshold), state
+                    "File ~%d+ lines. Read with offset/limit or %s first. "
+                    "Gate fires once per session." % (threshold, search_hint)), state
         path = tool_input.get("file_path", "")
         editing_existing = tool == "Edit" or (tool == "Write" and os.path.exists(path))
         unexplored = not _edit_target_explored(state, path)
