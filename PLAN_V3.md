@@ -86,10 +86,10 @@ Keep `last_bash` and `bash_fail_streak` keys (schema merge safety) but streak lo
 - Rewrite the `is_error`-based cases in `test_post_tool.py` / `test_freshness.py` / `test_lessons.py` to drive the new `post_tool_failure` event; keep ONE legacy test per behavior asserting the `is_error` fallback still works through `post_tool` (labeled as legacy-runtime coverage).
 - Manifest test (extend `test_packaging.py`): both manifests parse, both contain a `PostToolUseFailure` entry invoking `post_tool_failure`.
 
-- [ ] **Step 1: Write failing tests.**
-- [ ] **Step 2: Run, verify fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Full suite passes.**
+- [x] **Step 1: Write failing tests.**
+- [x] **Step 2: Run, verify fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Full suite passes.**
 
 ---
 
@@ -119,7 +119,7 @@ Use it ONLY for the failure-streak comparison in `post_tool_failure` (step 3 of 
 
 **Tests:** `pytest x` fail then `pytest x -v` fail → thrash fires; `pytest a` fail then `mypy a` fail → no thrash (different first token); `pytest tests/test_a.py` then `pytest tests/test_b.py` → fires only if ratio ≥ 0.8 (assert actual helper behavior, pick fixtures on the right side of the threshold); empty command → never matches.
 
-- [ ] **Steps 1–4: failing tests → verify fail → implement → full suite.**
+- [x] **Steps 1–4: failing tests → verify fail → implement → full suite.**
 
 ---
 
@@ -152,7 +152,7 @@ Not explored and not `edit_gate_fired` → deny once per session (flag + message
 
 **Tests:** read A then edit A → allowed; read A then edit B → denied; Grep in `/repo/src` then edit `/repo/src/x.py` → allowed; Grep in `/repo/src` then edit `/repo/srcx/y.py` → denied (prefix trap); MCP cortex query then edit anywhere → allowed; caps enforced (51st read evicts oldest); symlinked read path matches realpath edit target; second blind edit after gate fired → allowed (once-per-session unchanged).
 
-- [ ] **Steps 1–4: failing tests → verify fail → implement → full suite.**
+- [x] **Steps 1–4: failing tests → verify fail → implement → full suite.**
 
 ---
 
@@ -175,7 +175,7 @@ Keep the existing MCP-explore branch; a tool may match both (both effects apply)
 
 **Tests:** `mcp__ci__run_tests` after 2 edits → `edits_since_verify == 0` and stop gate silent; `mcp__foo__typecheck` resets; `mcp__cortex__cortex_query` does NOT reset; shell `pytest` path unchanged.
 
-- [ ] **Steps 1–4: failing tests → verify fail → implement → full suite.**
+- [x] **Steps 1–4: failing tests → verify fail → implement → full suite.**
 
 ---
 
@@ -194,7 +194,7 @@ Keep the existing MCP-explore branch; a tool may match both (both effects apply)
 
 **Tests:** `cat -n f` denied (read class, once); `head -20 f` denied; `tail -f log` NOT denied; `tail -n 5 log` denied; `find src -type f` denied (find class); `find .` alone NOT denied; compound `cat f | jq .` still exempt; Codex runtime variants mirror all of the above.
 
-- [ ] **Steps 1–4: failing tests → verify fail → implement → full suite.**
+- [x] **Steps 1–4: failing tests → verify fail → implement → full suite.**
 
 ---
 
@@ -217,7 +217,7 @@ Keep the existing MCP-explore branch; a tool may match both (both effects apply)
 
 **Tests:** unbounded Read of a 500-line temp file → deny once, second unbounded Read → allowed; Read with `limit` → never denied; 100-line file → never denied; nonexistent path → never denied; binary file with NULs → never denied; `MIDAS_READ_NUDGE_LINES=10` → 20-line file denied; matcher updated in both manifests (packaging test).
 
-- [ ] **Steps 1–4: failing tests → verify fail → implement → full suite + JSON validation.**
+- [x] **Steps 1–4: failing tests → verify fail → implement → full suite + JSON validation.**
 
 ---
 
@@ -226,9 +226,9 @@ Keep the existing MCP-explore branch; a tool may match both (both effects apply)
 **Files:**
 - Modify: `README.md`, `.claude-plugin/plugin.json` (`"version": "0.3.0"`), `.codex-plugin/plugin.json` (`0.3.0`), `tests/test_packaging.py`
 
-- [ ] **Step 1:** README: document the `PostToolUseFailure` requirement ("thrash/freshness/lesson auto-capture need Claude Code ≥ 2.1.x with the PostToolUseFailure hook event; on older versions those features are inert, everything else works"), update the What You Get table (per-file edit gate, pre-emptive read guard, MCP verify), note `tail -f` exemption.
-- [ ] **Step 2:** Version bump both manifests; validate every JSON file parses.
-- [ ] **Step 3:** Full suite + smoke:
+- [x] **Step 1:** README: document the `PostToolUseFailure` requirement ("thrash/freshness/lesson auto-capture need Claude Code ≥ 2.1.x with the PostToolUseFailure hook event; on older versions those features are inert, everything else works"), update the What You Get table (per-file edit gate, pre-emptive read guard, MCP verify), note `tail -f` exemption.
+- [x] **Step 2:** Version bump both manifests; validate every JSON file parses.
+- [x] **Step 3:** Full suite + smoke:
 ```bash
 python3 -m unittest discover -s tests -v
 echo '{"session_id":"smoke","cwd":"/tmp/x","tool_name":"Bash","tool_input":{"command":"pytest -q"},"error":"Exit code 2\nFAILED tests/x.py","is_interrupt":false}' | python3 hooks/midas_hook.py post_tool_failure

@@ -1,6 +1,6 @@
 {
   "name": "midas",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Turns mid-tier models to gold. Deterministic scaffolding — explore-before-edit gate, verify-before-stop gate, thrash detection, on-demand playbooks — lifts Haiku/Sonnet agentic quality a tier at net-zero token overhead.",
   "author": {
     "name": "Alil Kuizon"
@@ -31,7 +31,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|Bash",
+        "matcher": "Edit|Write|Bash|Read",
         "hooks": [
           {
             "type": "command",
@@ -48,6 +48,18 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" post_tool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/midas_hook.py\" post_tool_failure",
             "timeout": 5
           }
         ]

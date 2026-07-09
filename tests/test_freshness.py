@@ -6,7 +6,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks"))
 import midas_hook as mh
 
 
-def bash_failed(command, stderr):
+def bash_failed(command, err):
+    # Live-CC shape: PostToolUseFailure with top-level preformatted error string.
+    return {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "error": "Exit code 1\n" + err,
+        "is_interrupt": False,
+    }
+
+
+def legacy_bash_failed(command, stderr):
     return {
         "tool_name": "Bash",
         "tool_input": {"command": command},
@@ -19,20 +29,27 @@ class TestFreshness(unittest.TestCase):
         st = mh.default_state()
         ev = bash_failed("npm test", "unknown option --foo")
         ev2 = bash_failed("npm run build", "unknown option --bar")
-        out, st = mh.handle_event("post_tool", ev, st)
-        out2, st = mh.handle_event("post_tool", ev2, st)
+        out, st = mh.handle_event("post_tool_failure", ev, st)
+        out2, st = mh.handle_event("post_tool_failure", ev2, st)
         self.assertIn("stale API knowledge", out["hookSpecificOutput"]["additionalContext"])
         self.assertIsNone(out2)
 
     def test_thrash_wins_when_same_event_is_stale(self):
         st = mh.default_state()
         ev = bash_failed("npm test", "unknown option --foo")
-        _, st = mh.handle_event("post_tool", ev, st)
+        _, st = mh.handle_event("post_tool_failure", ev, st)
         st["freshness_fired"] = False
-        out, st = mh.handle_event("post_tool", ev, st)
+        out, st = mh.handle_event("post_tool_failure", ev, st)
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Same command failed twice", ctx)
         self.assertNotIn("stale API", ctx)
+
+    def test_legacy_is_error_stale_fallback(self):
+        # Legacy-runtime coverage: in-band is_error failures still trip freshness.
+        st = mh.default_state()
+        ev = legacy_bash_failed("npm test", "unknown option --foo")
+        out, st = mh.handle_event("post_tool", ev, st)
+        self.assertIn("stale API knowledge", out["hookSpecificOutput"]["additionalContext"])
 
     def test_plain_prompt_is_silent(self):
         out, _ = mh.handle_event("user_prompt", {"prompt": "edit this file"}, mh.default_state())

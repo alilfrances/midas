@@ -147,13 +147,25 @@ class TestMidasLessonCli(unittest.TestCase):
         self.assertIn("test note", out["hookSpecificOutput"]["additionalContext"])
 
 
-def bash_event(command, failed=False, stderr="", stdout=""):
+def bash_event(command, stderr="", stdout=""):
     return {
         "session_id": "s",
         "cwd": "/repo",
         "tool_name": "Bash",
         "tool_input": {"command": command},
-        "tool_response": {"is_error": failed, "stderr": stderr, "stdout": stdout},
+        "tool_response": {"is_error": False, "stderr": stderr, "stdout": stdout},
+    }
+
+
+def bash_fail_event(command, err="Exit code 2\nboom"):
+    # Live-CC PostToolUseFailure shape: top-level error string, no tool_response.
+    return {
+        "session_id": "s",
+        "cwd": "/repo",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "error": err,
+        "is_interrupt": False,
     }
 
 
@@ -161,9 +173,9 @@ class TestLessonEvents(unittest.TestCase):
     def test_thrash_records_lesson(self):
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
-        _, st = mh.handle_event("post_tool", bash_event("pytest", failed=True), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest"), st, lessons)
         out, st = mh.handle_event(
-            "post_tool", bash_event("pytest", failed=True, stderr="ImportError: nope"), st, lessons)
+            "post_tool_failure", bash_fail_event("pytest", err="ImportError: nope"), st, lessons)
         self.assertIsNotNone(out)
         self.assertEqual(lessons["lessons"][0]["kind"], "thrash")
         self.assertEqual(lessons["lessons"][0]["cmd"], "pytest")
@@ -173,8 +185,8 @@ class TestLessonEvents(unittest.TestCase):
     def test_success_after_thrash_records_fix(self):
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
-        _, st = mh.handle_event("post_tool", bash_event("pytest", failed=True), st, lessons)
-        _, st = mh.handle_event("post_tool", bash_event("pytest", failed=True), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest"), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest"), st, lessons)
         _, st = mh.handle_event("post_tool", bash_event("ls"), st, lessons)
         self.assertEqual(lessons["lessons"][0]["fix"], "")
         self.assertEqual(st["pending_fail_cmd"], "pytest")
@@ -185,10 +197,27 @@ class TestLessonEvents(unittest.TestCase):
     def test_verify_success_after_thrash_records_fix(self):
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
-        _, st = mh.handle_event("post_tool", bash_event("python app.py", failed=True), st, lessons)
-        _, st = mh.handle_event("post_tool", bash_event("python app.py", failed=True), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("python app.py"), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("python app.py"), st, lessons)
         _, st = mh.handle_event("post_tool", bash_event("python3 -m unittest discover -s tests"), st, lessons)
         self.assertEqual(lessons["lessons"][0]["fix"], "python3 -m unittest discover -s tests")
+
+    def test_legacy_is_error_thrash_records_lesson(self):
+        # Legacy-runtime coverage: in-band is_error failures via post_tool still
+        # record thrash lessons for runtimes that never send PostToolUseFailure.
+        st = mh.default_state()
+        lessons = {"v": 1, "lessons": []}
+        fail = {
+            "session_id": "s", "cwd": "/repo", "tool_name": "Bash",
+            "tool_input": {"command": "pytest"},
+            "tool_response": {"is_error": True, "stderr": "ImportError: nope", "stdout": ""},
+        }
+        _, st = mh.handle_event("post_tool", fail, st, lessons)
+        out, st = mh.handle_event("post_tool", fail, st, lessons)
+        self.assertIsNotNone(out)
+        self.assertEqual(lessons["lessons"][0]["kind"], "thrash")
+        self.assertEqual(lessons["lessons"][0]["cmd"], "pytest")
+        self.assertEqual(st["pending_fail_cmd"], "pytest")
 
     def test_session_start_lessons_block_capped_and_absent_is_v1(self):
         st = mh.default_state()
@@ -240,13 +269,33 @@ class TestLessonEvents(unittest.TestCase):
             env = {"CLAUDE_PLUGIN_DATA": td}
             payload = json.dumps({"session_id": "nocwd", "tool_name": "Bash",
                                   "tool_input": {"command": "pytest"},
-                                  "tool_response": {"is_error": True}})
-            cmd = [sys.executable, os.path.join(ROOT, "hooks", "midas_hook.py"), "post_tool"]
+                                  "error": "Exit code 2\nboom", "is_interrupt": False})
+            cmd = [sys.executable, os.path.join(ROOT, "hooks", "midas_hook.py"), "post_tool_failure"]
             for _ in range(2):
                 subprocess.run(cmd, input=payload, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, env={**os.environ, **env}, check=False)
             files = list(os.scandir(td))
         self.assertEqual(files, [])
+
+    def test_main_persists_lessons_from_post_tool_failure(self):
+        # main() must load/save lessons for the post_tool_failure event.
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as cwd:
+            env = {"CLAUDE_CONFIG_DIR": cfg}
+            payload = json.dumps({"session_id": "failwire", "cwd": cwd,
+                                  "tool_name": "Bash",
+                                  "tool_input": {"command": "pytest"},
+                                  "error": "Exit code 2\nboom", "is_interrupt": False})
+            cmd = [sys.executable, os.path.join(ROOT, "hooks", "midas_hook.py"), "post_tool_failure"]
+            for _ in range(2):
+                subprocess.run(cmd, input=payload, text=True, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env={**os.environ, **env}, check=False)
+            lessons = mh.load_lessons(cwd, base_dir=os.path.join(cfg, "midas-data"))
+            try:
+                os.unlink(mh.state_path("failwire"))
+            except OSError:
+                pass
+        self.assertEqual(lessons["lessons"][0]["kind"], "thrash")
+        self.assertEqual(lessons["lessons"][0]["cmd"], "pytest")
 
 
 if __name__ == "__main__":

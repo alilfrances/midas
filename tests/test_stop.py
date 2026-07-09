@@ -20,6 +20,15 @@ class TestStopGate(unittest.TestCase):
         out, _ = mh.handle_event("stop", {"session_id": "s"}, mh.default_state())
         self.assertIsNone(out)
 
+    def test_mcp_test_runner_keeps_stop_gate_silent(self):
+        st = mh.default_state()
+        st["edits_since_verify"] = 2
+        _, st = mh.handle_event(
+            "post_tool", {"session_id": "s", "tool_name": "mcp__ci__run_tests",
+                          "tool_input": {}}, st)
+        out, _ = mh.handle_event("stop", {"session_id": "s"}, st)
+        self.assertIsNone(out)
+
     def test_stop_hook_active_never_blocks(self):
         st = mh.default_state()
         st["edits_since_verify"] = 5

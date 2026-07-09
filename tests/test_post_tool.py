@@ -12,17 +12,47 @@ def ev(tool, tool_input=None, resp=None):
 
 
 class TestPostTool(unittest.TestCase):
-    def test_grep_sets_explored(self):
-        out, st = mh.handle_event("post_tool", ev("Grep"), mh.default_state())
-        self.assertTrue(st["explored"])
+    def test_grep_records_explored_dir_not_global_flag(self):
+        out, st = mh.handle_event(
+            "post_tool", ev("Grep", {"path": "/repo/src"}), mh.default_state())
+        self.assertIn(os.path.realpath("/repo/src"), st["explored_dirs"])
+        self.assertFalse(st["explored"])
         self.assertIsNone(out)
 
-    def test_second_read_sets_explored(self):
+    def test_grep_without_path_or_cwd_records_nothing(self):
+        _, st = mh.handle_event("post_tool", ev("Grep"), mh.default_state())
+        self.assertEqual(st["explored_dirs"], [])
+
+    def test_glob_uses_cwd_when_no_path(self):
+        data = ev("Glob")
+        data["cwd"] = "/repo"
+        _, st = mh.handle_event("post_tool", data, mh.default_state())
+        self.assertIn(os.path.realpath("/repo"), st["explored_dirs"])
+
+    def test_explored_dirs_dedupe_and_cap_20(self):
+        st = mh.default_state()
+        for _ in range(2):
+            _, st = mh.handle_event("post_tool", ev("Grep", {"path": "/repo/src"}), st)
+        self.assertEqual(len(st["explored_dirs"]), 1)
+        for i in range(21):
+            _, st = mh.handle_event("post_tool", ev("Grep", {"path": "/repo/d%d" % i}), st)
+        self.assertEqual(len(st["explored_dirs"]), 20)
+        self.assertNotIn(os.path.realpath("/repo/src"), st["explored_dirs"])
+
+    def test_reads_tracked_per_path_not_global_flag(self):
         st = mh.default_state()
         _, st = mh.handle_event("post_tool", ev("Read", {"file_path": "/a"}, {"file": {"content": "x"}}), st)
-        self.assertFalse(st["explored"])
         _, st = mh.handle_event("post_tool", ev("Read", {"file_path": "/b"}, {"file": {"content": "x"}}), st)
-        self.assertTrue(st["explored"])
+        self.assertFalse(st["explored"])
+        self.assertEqual(st["reads"], 2)
+        self.assertEqual(st["read_paths"],
+                         [os.path.realpath("/a"), os.path.realpath("/b")])
+
+    def test_read_paths_dedupe(self):
+        st = mh.default_state()
+        for _ in range(2):
+            _, st = mh.handle_event("post_tool", ev("Read", {"file_path": "/a"}, {"file": {"content": "x"}}), st)
+        self.assertEqual(st["read_paths"], [os.path.realpath("/a")])
 
     def test_large_read_nudges_once(self):
         st = mh.default_state()
@@ -49,7 +79,9 @@ class TestPostTool(unittest.TestCase):
         _, st = mh.handle_event("post_tool", ev("Bash", {"command": "python3 -m unittest discover"}), st)
         self.assertEqual(st["edits_since_verify"], 0)
 
-    def test_thrash_two_identical_failures_nudges_once(self):
+    def test_legacy_is_error_thrash_fallback_nudges_once(self):
+        # Legacy-runtime coverage: runtimes that report failure in-band via
+        # tool_response.is_error (not live CC) still trip thrash via post_tool.
         st = mh.default_state()
         fail = {"is_error": True, "stdout": "", "stderr": "boom"}
         out, st = mh.handle_event("post_tool", ev("Bash", {"command": "make x"}, fail), st)
@@ -58,13 +90,6 @@ class TestPostTool(unittest.TestCase):
         self.assertIsNotNone(out)
         self.assertIn("midas:debug", out["hookSpecificOutput"]["additionalContext"])
         out, st = mh.handle_event("post_tool", ev("Bash", {"command": "make x"}, fail), st)
-        self.assertIsNone(out)
-
-    def test_different_failing_commands_no_thrash_nudge(self):
-        st = mh.default_state()
-        fail = {"is_error": True}
-        _, st = mh.handle_event("post_tool", ev("Bash", {"command": "make x"}, fail), st)
-        out, st = mh.handle_event("post_tool", ev("Bash", {"command": "make y"}, fail), st)
         self.assertIsNone(out)
 
 
@@ -90,6 +115,24 @@ class TestVerifyDetection(unittest.TestCase):
         st["edits_since_verify"] = 3
         _, st = mh.handle_event("post_tool", ev("Bash", {"command": "pytest tests/test_x.py -v"}), st)
         self.assertEqual(st["edits_since_verify"], 0)
+
+    def test_mcp_run_tests_is_verify(self):
+        st = mh.default_state()
+        st["edits_since_verify"] = 2
+        _, st = mh.handle_event("post_tool", ev("mcp__ci__run_tests"), st)
+        self.assertEqual(st["edits_since_verify"], 0)
+
+    def test_mcp_typecheck_is_verify(self):
+        st = mh.default_state()
+        st["edits_since_verify"] = 2
+        _, st = mh.handle_event("post_tool", ev("mcp__foo__typecheck"), st)
+        self.assertEqual(st["edits_since_verify"], 0)
+
+    def test_mcp_retrieval_is_not_verify(self):
+        st = mh.default_state()
+        st["edits_since_verify"] = 2
+        _, st = mh.handle_event("post_tool", ev("mcp__cortex__cortex_query"), st)
+        self.assertEqual(st["edits_since_verify"], 2)
 
 
 class TestReadContentShapes(unittest.TestCase):

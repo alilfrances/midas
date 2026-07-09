@@ -36,11 +36,34 @@ class TestBashRouter(unittest.TestCase):
     def test_find_class_denies_once(self):
         self.assert_denied_once("find . -name '*.py'", "find", "Use Glob tool")
 
-    def test_compounds_and_flags_are_exempt(self):
-        for command in ("cat f | jq .", "cat -n f", "sh -c 'grep x f'", "cat f && echo ok",
+    def test_compounds_are_exempt(self):
+        for command in ("cat f | jq .", "sh -c 'grep x f'", "cat f && echo ok",
                         "cat f > out", "cat < in", "echo $(cat f)", "cat f; echo ok"):
             out, _ = mh.handle_event("pre_tool", pre_bash(command), mh.default_state())
             self.assertIsNone(out)
+
+    def test_flag_first_reads_denied(self):
+        self.assert_denied_once("cat -n foo.py", "read", "Use Read tool")
+
+    def test_head_with_count_denied(self):
+        self.assert_denied_once("head -20 foo.py", "read", "Use Read tool")
+
+    def test_tail_with_count_denied(self):
+        self.assert_denied_once("tail -n 5 log.txt", "read", "Use Read tool")
+
+    def test_tail_follow_exempt(self):
+        for command in ("tail -f log.txt", "tail -F log.txt"):
+            out, st = mh.handle_event("pre_tool", pre_bash(command), mh.default_state())
+            self.assertIsNone(out)
+            self.assertEqual(st["router_fired"], [])
+
+    def test_find_type_only_denied(self):
+        self.assert_denied_once("find src -type f", "find", "Use Glob tool")
+
+    def test_bare_find_exempt(self):
+        out, st = mh.handle_event("pre_tool", pre_bash("find ."), mh.default_state())
+        self.assertIsNone(out)
+        self.assertEqual(st["router_fired"], [])
 
     def test_lesson_warn_runs_before_router(self):
         st = mh.default_state()
@@ -75,6 +98,26 @@ class TestCodexBashRouter(unittest.TestCase):
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("bounded read", out["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertIn("read", st["router_fired"])
+
+    def test_codex_flag_first_read_denied(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("cat -n foo.py"), mh.default_state())
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("read", st["router_fired"])
+
+    def test_codex_tail_follow_exempt(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("tail -f log.txt"), mh.default_state())
+        self.assertIsNone(out)
+        self.assertEqual(st["router_fired"], [])
+
+    def test_codex_find_type_only_denied(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("find src -type f"), mh.default_state())
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("find", st["router_fired"])
+
+    def test_codex_bare_find_exempt(self):
+        out, st = mh.handle_event("pre_tool", codex_pre_bash("find ."), mh.default_state())
+        self.assertIsNone(out)
+        self.assertEqual(st["router_fired"], [])
 
 
 class TestRouterRelatedPostTool(unittest.TestCase):

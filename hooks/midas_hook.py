@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Midas hook dispatcher. Zero-dep, stdlib only.
 
-Usage: midas_hook.py <event>   event: session_start | pre_tool | post_tool | stop
+Usage: midas_hook.py <event>
+event: session_start | user_prompt | pre_tool | post_tool | post_tool_failure | stop
 Reads Claude Code hook JSON on stdin, may print hook JSON on stdout.
 Silent-fails on any error (exit 0, no output) — never breaks a session.
 """
+import difflib
 import json
 import hashlib
 import os
@@ -41,14 +43,18 @@ PROTOCOL = CLAUDE_PROTOCOL
 
 def default_state():
     return {
-        "explored": False,          # any Grep/Glob this session
-        "reads": 0,                 # Read count this session
+        "explored": False,          # session-global: set ONLY by MCP retrieval tools
+        "reads": 0,                 # Read count this session (counter only)
+        "read_paths": [],           # realpaths of files Read this session (cap 50, FIFO)
+        "explored_dirs": [],        # realpaths of dirs covered by Grep/Glob (cap 20, FIFO)
         "edit_gate_fired": False,
         "read_nudge_fired": False,
+        "preread_gate_fired": False,
         "thrash_nudge_fired": False,
         "stop_gate_fired": False,
         "edits_since_verify": 0,
         "last_bash": "",
+        "last_fail_cmd": "",        # last failing Bash command (streak lives here)
         "bash_fail_streak": 0,
         "lesson_warn_fired": False,
         "pending_fail_cmd": "",
@@ -213,6 +219,11 @@ def _nudge(msg):
                                    "additionalContext": msg}}
 
 
+def _failure_nudge(msg):
+    return {"hookSpecificOutput": {"hookEventName": "PostToolUseFailure",
+                                   "additionalContext": msg}}
+
+
 def _pre_tool_context(msg):
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -275,6 +286,45 @@ def _first_token(command):
     return parts[0] if parts else ""
 
 
+def _same_command(a, b):
+    na, nb = normalize_cmd(a), normalize_cmd(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if _first_token(na) != _first_token(nb):
+        return False
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= 0.8
+
+
+def _handle_bash_failure(state, lessons, command, err_text, wrap):
+    """Shared failure logic: streak, thrash nudge, freshness nudge.
+
+    Called from post_tool_failure (live CC) and the legacy is_error branch of
+    post_tool (runtimes that report failures in-band). `wrap` builds the
+    event-appropriate nudge output.
+    """
+    if _same_command(command, state.get("last_fail_cmd", "")):
+        state["bash_fail_streak"] += 1
+    else:
+        state["last_fail_cmd"] = command
+        state["bash_fail_streak"] = 1
+
+    if state["bash_fail_streak"] >= 2 and not state["thrash_nudge_fired"]:
+        state["thrash_nudge_fired"] = True
+        if lessons is not None:
+            failed_cmd = normalize_cmd(command)
+            record_lesson(lessons, "thrash", failed_cmd, err=err_text[:80])
+            state["pending_fail_cmd"] = failed_cmd
+        return wrap("Same command failed twice. Stop retrying; load midas:debug."), state
+
+    if not state.get("freshness_fired") and STALE_RE.search(err_text):
+        state["freshness_fired"] = True
+        return wrap("Error smells like stale API knowledge (version/signature drift). Fetch current docs first — context7 MCP if present, else official docs via WebFetch — then fix."), state
+
+    return None, state
+
+
 def _set_lesson_fix(lessons, failed_cmd, fix_cmd):
     try:
         norm_failed = normalize_cmd(failed_cmd)
@@ -289,26 +339,68 @@ def _set_lesson_fix(lessons, failed_cmd, fix_cmd):
     return False
 
 
+def _track_path(items, path, cap):
+    """Append realpath(path) to items, dedupe, FIFO-cap. Silent on any error."""
+    try:
+        if not path:
+            return
+        real = os.path.realpath(path)
+        if real in items:
+            return
+        items.append(real)
+        del items[:-cap]
+    except Exception:
+        pass
+
+
+def _path_under(target, d):
+    """True when target is d or lives under directory d (no /a/b vs /a/bc trap)."""
+    try:
+        if not d:
+            return False
+        if target == d:
+            return True
+        return target.startswith(d.rstrip(os.sep) + os.sep)
+    except Exception:
+        return False
+
+
+def _edit_target_explored(state, path):
+    target = os.path.realpath(path)
+    if target in (state.get("read_paths") or []):
+        return True
+    if any(_path_under(target, d) for d in (state.get("explored_dirs") or [])):
+        return True
+    # MCP exploration is session-global: tool inputs carry no reliable path
+    return bool(state.get("explored"))
+
+
 MCP_EXPLORE_RE = re.compile(
     r"(query|search|read|grep|find|symbol|overview|references|relations|impact"
     r"|localize|inspect|investigat|triage|spectrum|context|repro|resolve|docs)",
     re.IGNORECASE)
 
+# Deliberately narrower than the explore regex: anchored run_tests?/_tests?
+# forms avoid false positives like mcp__contest__... via bare "test".
+MCP_VERIFY_RE = re.compile(
+    r"(run_tests?|_tests?\b|verify|lint|typecheck|check|build|compile)",
+    re.IGNORECASE)
+
 ROUTER_PATTERNS = (
-    ("read", re.compile(r"^(cat|head|tail|less|more)\s+[^-]"),
+    ("read", re.compile(r"^(?!tail\s+.*-[fF]\b)(cat|head|tail|less|more)\s+\S"),
      "Use Read tool (offset/limit) not {cmd0}. Retry with Read. Gate fires once per class."),
     ("search", re.compile(r"^(grep|rg|egrep|fgrep)\s"),
      "Use Grep tool not shell grep. Structured output, cheaper. Retry with Grep. Gate fires once per class."),
-    ("find", re.compile(r"^find\s+\S+.*-name"),
+    ("find", re.compile(r"^find\s+\S+.*-(name|iname|path|ipath|regex|type)\b"),
      "Use Glob tool not find. Retry with Glob. Gate fires once per class."),
 )
 
 CODEX_ROUTER_PATTERNS = (
-    ("read", re.compile(r"^(cat|head|tail|less|more)\s+[^-]"),
+    ("read", re.compile(r"^(?!tail\s+.*-[fF]\b)(cat|head|tail|less|more)\s+\S"),
      "Avoid full-file {cmd0}. Use rg -n first, then a bounded read like sed -n 'START,ENDp'. Gate fires once per class."),
     ("search", re.compile(r"^(grep|egrep|fgrep)\s"),
      "Use rg -n -C 3 instead of {cmd0}. Gate fires once per class."),
-    ("find", re.compile(r"^find\s+\S+.*-name"),
+    ("find", re.compile(r"^find\s+\S+.*-(name|iname|path|ipath|regex|type)\b"),
      "Use rg --files -g 'PATTERN' instead of find -name. Gate fires once per class."),
 )
 
@@ -328,6 +420,32 @@ def _read_nudge_limit():
         return int(os.environ.get("MIDAS_READ_NUDGE_LINES", "400"))
     except Exception:
         return 400
+
+
+def _file_exceeds_lines(path, threshold):
+    """Bounded, silent-fail line probe: True only when path is a text file with
+    more than `threshold` newlines. Stops counting at threshold+1, scans at most
+    5MB, treats NUL-in-first-chunk as binary (no deny), any OSError -> False."""
+    try:
+        count = 0
+        scanned = 0
+        first = True
+        with open(path, "rb") as f:
+            while scanned < 5 * 1024 * 1024:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                if first:
+                    if b"\x00" in chunk:
+                        return False
+                    first = False
+                scanned += len(chunk)
+                count += chunk.count(b"\n")
+                if count > threshold:
+                    return True
+        return False
+    except Exception:
+        return False
 
 
 def _runtime(data=None):
@@ -444,9 +562,17 @@ def handle_event(event, data, state, lessons=None):
             out = _router_deny(tool_input.get("command", ""), state, runtime)
             if out is not None:
                 return out, state
+        if (tool == "Read" and not state.get("preread_gate_fired") and
+                "limit" not in tool_input and "offset" not in tool_input):
+            threshold = _read_nudge_limit()
+            if _file_exceeds_lines(tool_input.get("file_path", ""), threshold):
+                state["preread_gate_fired"] = True
+                return _deny(
+                    "File ~%d+ lines. Read with offset/limit or Grep -n first. "
+                    "Gate fires once per session." % threshold), state
         path = tool_input.get("file_path", "")
         editing_existing = tool == "Edit" or (tool == "Write" and os.path.exists(path))
-        unexplored = not state.get("explored") and state.get("reads", 0) < 2
+        unexplored = not _edit_target_explored(state, path)
         if editing_existing and unexplored and not state["edit_gate_fired"]:
             state["edit_gate_fired"] = True
             if runtime == "codex":
@@ -460,16 +586,22 @@ def handle_event(event, data, state, lessons=None):
         tool_input = data.get("tool_input") or {}
 
         if tool in ("Grep", "Glob"):
-            state["explored"] = True
+            _track_path(state.setdefault("explored_dirs", []),
+                        tool_input.get("path") or data.get("cwd") or "", 20)
 
-        # MCP retrieval tools (e.g. Cortex graph queries) count as exploration
+        # MCP retrieval tools (e.g. Cortex graph queries) count as exploration.
+        # Session-global: MCP inputs carry no attributable path.
         if tool.startswith("mcp__") and MCP_EXPLORE_RE.search(tool):
             state["explored"] = True
 
+        # MCP test runners / checkers count as verify (a tool may match both)
+        if tool.startswith("mcp__") and MCP_VERIFY_RE.search(tool):
+            state["edits_since_verify"] = 0
+
         if tool == "Read":
             state["reads"] += 1
-            if state["reads"] >= 2:
-                state["explored"] = True
+            _track_path(state.setdefault("read_paths", []),
+                        tool_input.get("file_path", ""), 50)
             content = _read_content(data)
             unbounded = "limit" not in tool_input and "offset" not in tool_input
             if (unbounded and not state["read_nudge_fired"] and
@@ -492,34 +624,34 @@ def handle_event(event, data, state, lessons=None):
             if _looks_like_verify(command):
                 state["edits_since_verify"] = 0
 
-            if failed and command == state.get("last_bash"):
-                state["bash_fail_streak"] += 1
-            elif failed:
-                state["last_bash"] = command
-                state["bash_fail_streak"] = 1
-            else:
-                state["last_bash"] = command
-                state["bash_fail_streak"] = 0
+            state["last_bash"] = command
 
-            if (failed and state["bash_fail_streak"] >= 2 and
-                    not state["thrash_nudge_fired"]):
-                state["thrash_nudge_fired"] = True
-                if lessons is not None:
-                    err = _bash_error_text(data)[:80]
-                    failed_cmd = normalize_cmd(command)
-                    record_lesson(lessons, "thrash", failed_cmd, err=err)
-                    state["pending_fail_cmd"] = failed_cmd
-                return _nudge("Same command failed twice. Stop retrying; load midas:debug."), state
+            if failed:
+                # Legacy fallback: live CC never delivers is_error (failures go
+                # to post_tool_failure) but in-band runtimes may.
+                return _handle_bash_failure(
+                    state, lessons, command, _bash_error_text(data), _nudge)
 
-            if failed and not state.get("freshness_fired") and STALE_RE.search(_bash_error_text(data)):
-                state["freshness_fired"] = True
-                return _nudge("Error smells like stale API knowledge (version/signature drift). Fetch current docs first — context7 MCP if present, else official docs via WebFetch — then fix."), state
+            state["bash_fail_streak"] = 0
+            state["last_fail_cmd"] = ""
 
             pending = state.get("pending_fail_cmd", "")
-            if not failed and pending and lessons is not None:
+            if pending and lessons is not None:
                 if _first_token(command) == _first_token(pending) or _looks_like_verify(command):
                     if _set_lesson_fix(lessons, pending, command):
                         state["pending_fail_cmd"] = ""
+
+    if event == "post_tool_failure":
+        tool = data.get("tool_name", "")
+        if tool != "Bash":
+            return None, state
+        if data.get("is_interrupt"):
+            # user abort, not a command failure — never feeds streak or lessons
+            return None, state
+        tool_input = data.get("tool_input") or {}
+        command = tool_input.get("command", "")
+        err_text = str(data.get("error") or "")[:2000]
+        return _handle_bash_failure(state, lessons, command, err_text, _failure_nudge)
 
     if event == "stop":
         if data.get("stop_hook_active"):
@@ -547,7 +679,7 @@ def main():
     cwd = data.get("cwd")
     lessons = None
     before_lessons = None
-    if event in ("session_start", "pre_tool", "post_tool") and cwd:
+    if event in ("session_start", "pre_tool", "post_tool", "post_tool_failure") and cwd:
         lessons = load_lessons(cwd)
         before_lessons = json.dumps(lessons, sort_keys=True)
     out, state = handle_event(event, data, state, lessons)

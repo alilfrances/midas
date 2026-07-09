@@ -11,15 +11,20 @@ Research shows scaffolding roughly doubles weaker-model success on agentic tasks
 | Piece | Fires when | Cost |
 | --- | --- | --- |
 | Session protocol | Session starts | ~150 tok, once |
-| Edit gate | First existing-file edit before exploration | Deny once, 0 tok until fired |
-| Verify gate | Stop after edits with no check | Block once |
-| Thrash nudge | Same command fails twice | ~25 tok, once |
-| Large-read nudge | Unbounded read over 400 lines | ~25 tok, once |
-| Bash router | Bare `cat`/`grep`/`find -name` via Bash; Codex allows `rg` | Deny once per class |
+| Edit gate (per-file) | Edit of an existing file that was never Read, whose dir was never Grep/Glob'd, and no MCP exploration ran | Deny once, 0 tok until fired |
+| Verify gate | Stop after edits with no check (shell verify commands or MCP test/lint/typecheck runners both count) | Block once |
+| Thrash nudge | Same command fails twice (fuzzy: arg-tweaked retries like `pytest x` -> `pytest x -v` count) | ~25 tok, once |
+| Pre-emptive read guard | Unbounded Read of a 400+ line file, before the tokens are spent | Deny once |
+| Large-read nudge | Unbounded read over 400 lines (post-hoc backstop) | ~25 tok, once |
+| Bash router | Bare `cat`/`head`/`tail`/`grep`/`find` with filter predicates via Bash (`tail -f`/`-F` follow is exempt); Codex allows `rg` | Deny once per class |
 | Freshness gate | Stale-looking errors or upgrade/latest prompts | ~25 tok, once |
 | Lessons | Prior repo failures or deliberate notes exist | Top 3, <=240 chars |
 | Scope skill | Capability/access limits | 0 until loaded |
 | Seven on-demand skills | User/model loads playbook | 0 until loaded |
+
+### Claude Code version requirement
+
+Live failure detection (thrash nudge, freshness-on-error, and automatic lesson capture) rides on the `PostToolUseFailure` hook event: it needs Claude Code >= 2.1.x with the PostToolUseFailure hook event. On older versions that entry simply never fires — those three features are inert, everything else works.
 
 ## Install
 
@@ -81,7 +86,7 @@ No companion plugin is required. Midas is stdlib-only and self-contained.
 
 Other Stop hooks: stop gates can stack, but Midas blocks once and respects active stop hooks to avoid loops.
 
-MCP retrieval tools count as exploration when their names look like query/search/read/symbol/context/localize/triage/repro/docs work, so Cortex, Axon, and similar tools can satisfy the edit gate.
+MCP retrieval tools count as exploration when their names look like query/search/read/symbol/context/localize/triage/repro/docs work, so Cortex, Axon, and similar tools can satisfy the edit gate. MCP test runners and checkers (`run_tests`, `verify`, `lint`, `typecheck`, `check`, `build`, `compile` in the tool name) count as verification and keep the stop gate quiet.
 
 Subagents share the same session state. Router denies are once per class across the session, and compound Bash commands are exempt.
 

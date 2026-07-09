@@ -16,7 +16,7 @@ class TestPackaging(unittest.TestCase):
         claude = load_json(".claude-plugin", "plugin.json")
         codex = load_json(".codex-plugin", "plugin.json")
         self.assertEqual(claude["version"], codex["version"])
-        self.assertEqual(claude["version"], "0.2.1")
+        self.assertEqual(claude["version"], "0.3.0")
 
     def test_codex_manifest_points_at_skills(self):
         manifest = load_json(".codex-plugin", "plugin.json")
@@ -54,6 +54,32 @@ class TestPackaging(unittest.TestCase):
         self.assertNotIn("PLUGIN_ROOT:-", claude_command)
         self.assertIn("hooks/midas_hook.py", claude_command)
         self.assertIn(" user_prompt", claude_command)
+
+    def test_pre_tool_matcher_includes_read_in_both_manifests(self):
+        codex_hooks = load_json("hooks", "hooks.json")["hooks"]
+        self.assertEqual(codex_hooks["PreToolUse"][0]["matcher"], "Edit|Write|Bash|Read")
+        claude_hooks = load_json(".claude-plugin", "plugin.json")["hooks"]
+        self.assertEqual(claude_hooks["PreToolUse"][0]["matcher"], "Edit|Write|Bash|Read")
+
+    def test_post_tool_failure_registered_in_both_manifests(self):
+        codex_hooks = load_json("hooks", "hooks.json")["hooks"]
+        self.assertIn("PostToolUseFailure", codex_hooks)
+        entry = codex_hooks["PostToolUseFailure"][0]
+        self.assertEqual(entry["matcher"], "Bash")
+        command = entry["hooks"][0]["command"]
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-.}}", command)
+        self.assertIn("hooks/codex_hook.py", command)
+        self.assertIn(" post_tool_failure", command)
+
+        claude_hooks = load_json(".claude-plugin", "plugin.json")["hooks"]
+        self.assertIn("PostToolUseFailure", claude_hooks)
+        entry = claude_hooks["PostToolUseFailure"][0]
+        self.assertEqual(entry["matcher"], "Bash")
+        command = entry["hooks"][0]["command"]
+        self.assertIn("${CLAUDE_PLUGIN_ROOT}", command)
+        self.assertNotIn("PLUGIN_ROOT:-", command)
+        self.assertIn("hooks/midas_hook.py", command)
+        self.assertIn(" post_tool_failure", command)
 
     def test_codex_hook_adapter_exists(self):
         path = os.path.join(ROOT, "hooks", "codex_hook.py")
