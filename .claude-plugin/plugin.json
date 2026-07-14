@@ -1,6 +1,6 @@
 {
   "name": "midas",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Turns mid-tier models to gold. Deterministic scaffolding — explore-before-edit gate, verify-before-stop gate, thrash detection, on-demand playbooks — lifts Haiku/Sonnet agentic quality a tier at net-zero token overhead.",
   "author": {
     "name": "Alil Kuizon"

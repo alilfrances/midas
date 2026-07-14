@@ -16,7 +16,7 @@ class TestPackaging(unittest.TestCase):
         claude = load_json(".claude-plugin", "plugin.json")
         codex = load_json(".codex-plugin", "plugin.json")
         self.assertEqual(claude["version"], codex["version"])
-        self.assertEqual(claude["version"], "0.3.1")
+        self.assertEqual(claude["version"], "0.3.2")
 
     def test_codex_manifest_points_at_skills(self):
         manifest = load_json(".codex-plugin", "plugin.json")
