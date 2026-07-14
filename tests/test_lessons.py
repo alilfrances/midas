@@ -208,24 +208,27 @@ class TestLessonEvents(unittest.TestCase):
         self.assertEqual(st["pending_fail_cmd"], "pytest")
 
     def test_success_after_thrash_records_fix(self):
+        # v4: fix captured only when the failing command reran (arg-tweaked ok)
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
-        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest"), st, lessons)
-        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest"), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest -q"), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", bash_fail_event("pytest -q"), st, lessons)
         _, st = mh.handle_event("post_tool", bash_event("ls"), st, lessons)
         self.assertEqual(lessons["lessons"][0]["fix"], "")
-        self.assertEqual(st["pending_fail_cmd"], "pytest")
-        _, st = mh.handle_event("post_tool", bash_event("pytest tests/test_x.py"), st, lessons)
-        self.assertEqual(lessons["lessons"][0]["fix"], "pytest tests/test_x.py")
+        self.assertEqual(st["pending_fail_cmd"], "pytest -q")
+        _, st = mh.handle_event("post_tool", bash_event("pytest -q -v"), st, lessons)
+        self.assertEqual(lessons["lessons"][0]["fix"], "pytest -q -v")
         self.assertEqual(st["pending_fail_cmd"], "")
 
-    def test_verify_success_after_thrash_records_fix(self):
+    def test_verify_success_after_thrash_records_no_fix(self):
+        # v4 regression guard: an unrelated verify command is NOT a fix
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
         _, st = mh.handle_event("post_tool_failure", bash_fail_event("python app.py"), st, lessons)
         _, st = mh.handle_event("post_tool_failure", bash_fail_event("python app.py"), st, lessons)
         _, st = mh.handle_event("post_tool", bash_event("python3 -m unittest discover -s tests"), st, lessons)
-        self.assertEqual(lessons["lessons"][0]["fix"], "python3 -m unittest discover -s tests")
+        self.assertEqual(lessons["lessons"][0]["fix"], "")
+        self.assertEqual(st["pending_fail_cmd"], "python app.py")
 
     def test_legacy_is_error_thrash_records_lesson(self):
         # Legacy-runtime coverage: in-band is_error failures via post_tool still

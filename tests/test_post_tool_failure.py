@@ -1,3 +1,4 @@
+import difflib
 import os
 import sys
 import unittest
@@ -109,15 +110,66 @@ class TestPostToolFailureFreshness(unittest.TestCase):
 
 
 class TestPostToolFailureFixCapture(unittest.TestCase):
-    def test_failure_then_success_same_first_token_captures_fix(self):
+    # v4 rule: a fix is captured ONLY when the failing command itself —
+    # possibly arg-tweaked, per _same_command — reran and succeeded.
+    # First-token-only and verify-command matches were false-fix bugs.
+
+    def _thrash(self, cmd):
         st = mh.default_state()
         lessons = {"v": 1, "lessons": []}
-        _, st = mh.handle_event("post_tool_failure", fail_ev("pytest"), st, lessons)
-        _, st = mh.handle_event("post_tool_failure", fail_ev("pytest"), st, lessons)
-        self.assertEqual(st["pending_fail_cmd"], "pytest")
-        _, st = mh.handle_event("post_tool", ok_ev("pytest tests/test_x.py"), st, lessons)
-        self.assertEqual(lessons["lessons"][0]["fix"], "pytest tests/test_x.py")
+        _, st = mh.handle_event("post_tool_failure", fail_ev(cmd), st, lessons)
+        _, st = mh.handle_event("post_tool_failure", fail_ev(cmd), st, lessons)
+        return st, lessons
+
+    def test_tweaked_rerun_success_captures_fix(self):
+        # fixture calibration: ratio must clear the 0.8 _same_command bar
+        ratio = difflib.SequenceMatcher(None, "pytest -q", "pytest -q -v").ratio()
+        self.assertGreaterEqual(ratio, 0.8)
+        st, lessons = self._thrash("pytest -q")
+        self.assertEqual(st["pending_fail_cmd"], "pytest -q")
+        _, st = mh.handle_event("post_tool", ok_ev("pytest -q -v"), st, lessons)
+        self.assertEqual(lessons["lessons"][0]["fix"], "pytest -q -v")
         self.assertEqual(st["pending_fail_cmd"], "")
+
+    def test_same_first_token_below_ratio_never_captures(self):
+        # live false-fix repro: pytest --version success is not proof of a fix
+        ratio = difflib.SequenceMatcher(None, "pytest -q", "pytest --version").ratio()
+        self.assertLess(ratio, 0.8)
+        st, lessons = self._thrash("pytest -q")
+        _, st = mh.handle_event("post_tool", ok_ev("pytest --version"), st, lessons)
+        self.assertEqual(lessons["lessons"][0]["fix"], "")
+        self.assertEqual(st["pending_fail_cmd"], "pytest -q")
+
+    def test_unrelated_verify_command_never_captures(self):
+        # live false-fix repro: make lint matches VERIFY_RE but not the failure
+        st, lessons = self._thrash("python app.py")
+        st["edits_since_verify"] = 3
+        _, st = mh.handle_event("post_tool", ok_ev("make lint"), st, lessons)
+        self.assertEqual(lessons["lessons"][0]["fix"], "")
+        self.assertEqual(st["pending_fail_cmd"], "python app.py")
+        # verify-reset stays untouched: make lint still counts as a verify
+        self.assertEqual(st["edits_since_verify"], 0)
+
+    def test_identical_rerun_clears_pending_without_self_fix(self):
+        st, lessons = self._thrash("pytest -q")
+        lessons["lessons"][0]["ts"] = 123
+        _, st = mh.handle_event("post_tool", ok_ev("pytest -q"), st, lessons)
+        self.assertEqual(st["pending_fail_cmd"], "")
+        self.assertEqual(lessons["lessons"][0]["fix"], "")
+        self.assertEqual(lessons["lessons"][0]["n"], 1)
+        self.assertEqual(lessons["lessons"][0]["ts"], 123)
+
+    def test_pending_survives_unrelated_success(self):
+        st, lessons = self._thrash("pytest -q")
+        _, st = mh.handle_event("post_tool", ok_ev("ls"), st, lessons)
+        self.assertEqual(st["pending_fail_cmd"], "pytest -q")
+        self.assertEqual(lessons["lessons"][0]["fix"], "")
+
+    def test_confirmation_leaves_err_untouched(self):
+        st, lessons = self._thrash("pytest -q")
+        _, st = mh.handle_event("post_tool", ok_ev("pytest -q -v"), st, lessons)
+        self.assertEqual(lessons["lessons"][0]["err"], "Exit code 2\nboom")
+        self.assertEqual(lessons["lessons"][0]["fix"], "pytest -q -v")
 
 
 class TestFuzzyThrashMatching(unittest.TestCase):

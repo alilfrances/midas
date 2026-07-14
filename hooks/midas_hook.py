@@ -397,7 +397,9 @@ ROUTER_PATTERNS = (
      "Use Read tool (offset/limit) not {cmd0}. Retry with Read. Gate fires once per class."),
     ("search", re.compile(r"^(grep|rg|egrep|fgrep)\s"),
      "Use Grep tool not shell grep. Structured output, cheaper. Retry with Grep. Gate fires once per class."),
-    ("find", re.compile(r"^find\s+\S+.*-(name|iname|path|ipath|regex|type)\b"),
+    # Deny only Glob-replaceable predicates (path arg optional). Metadata
+    # predicates (-mtime, -size, -user, ...) have no Glob equivalent — allowed.
+    ("find", re.compile(r"^find\b(?:\s+\S+)*?\s+-(name|iname|path|ipath|regex|type)\b"),
      "Use Glob tool not find. Retry with Glob. Gate fires once per class."),
 )
 
@@ -406,7 +408,7 @@ CODEX_ROUTER_PATTERNS = (
      "Avoid full-file {cmd0}. Use rg -n first, then a bounded read like sed -n 'START,ENDp'. Gate fires once per class."),
     ("search", re.compile(r"^(grep|egrep|fgrep)\s"),
      "Use rg -n -C 3 instead of {cmd0}. Gate fires once per class."),
-    ("find", re.compile(r"^find\s+\S+.*-(name|iname|path|ipath|regex|type)\b"),
+    ("find", re.compile(r"^find\b(?:\s+\S+)*?\s+-(name|iname|path|ipath|regex|type)\b"),
      "Use rg --files -g 'PATTERN' instead of find -name. Gate fires once per class."),
 )
 
@@ -643,10 +645,13 @@ def handle_event(event, data, state, lessons=None):
             state["last_fail_cmd"] = ""
 
             pending = state.get("pending_fail_cmd", "")
-            if pending and lessons is not None:
-                if _first_token(command) == _first_token(pending) or _looks_like_verify(command):
-                    if _set_lesson_fix(lessons, pending, command):
-                        state["pending_fail_cmd"] = ""
+            if pending and lessons is not None and _same_command(command, pending):
+                # loop-back confirmed: the failing command itself (arg-tweaked
+                # ok) reran and passed. An identical rerun proves recovery but
+                # teaches nothing — clear pending without a self-referential fix.
+                if normalize_cmd(command) != normalize_cmd(pending):
+                    _set_lesson_fix(lessons, pending, command)
+                state["pending_fail_cmd"] = ""
 
     if event == "post_tool_failure":
         tool = data.get("tool_name", "")

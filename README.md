@@ -128,6 +128,8 @@ MCP retrieval tools count as exploration when their names look like query/search
 
 Subagents share the same session state. Router denies are once per class across the session, and compound Bash commands are exempt.
 
+The router's coverage rule: deny only what the recommended tool can actually replace. `find` is denied only on Glob-replaceable predicates (`-name`/`-iname`/`-path`/`-ipath`/`-regex`/`-type`, path argument optional); metadata predicates (`-mtime`, `-size`, `-user`, ...) and bare `find .` pass through because Glob has no equivalent, as does `tail -f`/`-F` because Read cannot follow.
+
 ## Disable
 
 `MIDAS_DISABLE=1` env var kills all hooks and lesson writes. `/plugin uninstall midas@midas` removes.

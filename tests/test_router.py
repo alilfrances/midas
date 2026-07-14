@@ -158,3 +158,51 @@ class TestRouterRelatedPostTool(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRouterCoverageMatrix(unittest.TestCase):
+    # Locked-in coverage rule: deny ONLY what Read/Grep/Glob can actually
+    # replace. Metadata/action finds, tail -f follows, and compounds must
+    # stay allowed — pattern edits that change any row here need a plan.
+
+    DENY = (
+        # read class
+        "cat foo.py", "cat -n foo.py", "head -20 foo.py",
+        "tail -n 50 log", "less +100 foo.py", "more foo.py",
+        # search class
+        "grep -rn pat src", "egrep pat f", "fgrep pat f",
+        # find class: Glob-replaceable predicates, with and without a path arg
+        "find . -name '*.py'", "find src -iname '*.md'", "find . -path '*/x/*'",
+        "find . -ipath '*x*'", "find . -regex '.*py'", "find src -type f",
+        "find -name '*.py'", "find -type f",
+    )
+    ALLOW = (
+        # follows have no Read equivalent
+        "tail -f app.log", "tail -F app.log",
+        # metadata predicates have no Glob equivalent
+        "find . -mtime -7", "find . -size +1M", "find . -empty",
+        "find . -newer ref.txt", "find . -perm 644", "find / -user root",
+        "find . -maxdepth 2",
+        # bare exploratory find
+        "find .",
+        # compounds always exempt
+        "cat f | jq .", "grep x f && echo y",
+    )
+
+    def _deny(self, command, runtime):
+        st = mh.default_state()
+        return mh._router_deny(command, st, runtime) is not None
+
+    def test_matrix_both_runtimes(self):
+        for runtime in ("claude", "codex"):
+            for command in self.DENY:
+                self.assertTrue(self._deny(command, runtime),
+                                "%s should deny: %r" % (runtime, command))
+            for command in self.ALLOW:
+                self.assertFalse(self._deny(command, runtime),
+                                 "%s should allow: %r" % (runtime, command))
+
+    def test_rg_split_by_runtime(self):
+        # rg is the recommended tool on Codex, a Grep-replaceable one on Claude
+        self.assertTrue(self._deny("rg pat", "claude"))
+        self.assertFalse(self._deny("rg pat", "codex"))
